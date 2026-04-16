@@ -1,0 +1,377 @@
+---
+title: "Multi-mapping reads in A. rouxii, M. flavus and M. racemosus"
+author: "Emma Sunde Tofastrud"
+date: "2026-01-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(knitr)
+library(cowplot)
+library(gridExtra)
+library(gtools) # Used in plotting, using mixedsort which comes from this package the contig names were sorted numerically when plotting
+```
+
+# Import, and merge R1 and R2 files
+
+## *A. rouxii* 
+
+```{r}
+# Import file for R1
+R1_AmyRoux <- read.table("/Users/emma/Documents/NMBU/Master/Master/Data/Mapping coverage/Multi-aligned default HiC/R1_mult_AmyRoux1.txt", header = FALSE)
+colnames(R1_AmyRoux) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R1_AmyRoux)
+```
+
+```{r}
+# Import file for R2
+R2_AmyRoux <- read.table("/Users/emma/Documents/NMBU/Master/Master/Data/Mapping coverage/Multi-aligned default HiC/R2_mult_AmyRoux1.txt", header = FALSE)
+colnames(R2_AmyRoux) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R2_AmyRoux)
+```
+
+```{r}
+# Merge the files to show total number of multi-mappinged reads across the genome
+AmyRoux_multi_mapping <- rbind(R1_AmyRoux, R2_AmyRoux)
+```
+
+## *M. flavus* 
+
+```{r}
+# Import file for R1
+R1_MucFlav <- read.table("/Users/emma/Documents/NMBU/Master/Master/gzMucFlav1/nf-core:HiC pipeline files/Multi-aligned reads/R1_mult_MucFlav1.txt", header = FALSE)
+colnames(R1_MucFlav) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R1_MucFlav)
+```
+
+```{r}
+# Import file for R2
+R2_MucFlav <- read.table("/Users/emma/Documents/NMBU/Master/Master/gzMucFlav1/nf-core:HiC pipeline files/Multi-aligned reads/R2_mult_MucFlav1.txt", header = FALSE)
+colnames(R2_MucFlav) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R2_MucFlav)
+```
+
+```{r}
+# Merge the files to show total number of multi-mapping reads across the genome
+MucFlav_multi_mapping <- rbind(R1_MucFlav, R2_MucFlav)
+```
+
+## *M. racemosus* 
+
+```{r}
+# Import file for R1
+R1_MucRace <- read.table("/Users/emma/Documents/NMBU/Master/Master/gzMucRace1/nfcore/Multi-aligned reads/R1_mult_MucRace1.txt", header = FALSE)
+colnames(R1_MucRace) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R1_MucRace)
+```
+
+```{r}
+# Import file for R2
+R2_MucRace <- read.table("/Users/emma/Documents/NMBU/Master/Master/gzMucRace1/nfcore/Multi-aligned reads/R2_mult_MucRace1.txt", header = FALSE)
+colnames(R2_MucRace) <- c("contig", "start", "CIGAR", "align_score")
+
+head(R2_MucRace)
+```
+
+```{r}
+# Merge the files to show total number of multi-mapping reads across the genome
+MucRace_multi_mapping <- rbind(R1_MucRace, R2_MucRace)
+```
+
+# Multi-mapping reads per chromosome
+
+## *A. rouxii*
+
+```{r}
+# Group by chromosome and find number of multi-mapping reads per chromosome
+AmyRoux_reads_per_chrom <- AmyRoux_multi_mapping %>%
+  group_by(contig) %>%
+  summarise(count = n(), .groups = "drop")
+```
+
+```{r}
+# Group by chromosome and find number of multi-mapping reads per chromosome
+MucFlav_reads_per_chrom <- MucFlav_multi_mapping %>%
+  group_by(contig) %>%
+  summarise(count = n(), .groups = "drop")
+```
+
+```{r}
+# Group by chromosome and find number of multi-mapping reads per chromosome
+MucRace_reads_per_chrom <- MucRace_multi_mapping %>%
+  group_by(contig) %>%
+  summarise(count = n(), .groups = "drop")
+```
+
+# Filtering
+
+## Filter out scaffolds and MT from *A. rouxii*
+
+```{r}
+# Filter out all named scaffold
+AmyRoux_reads_per_chrom_filtered <- AmyRoux_reads_per_chrom %>%
+  filter(
+    !grepl("scaffold", contig, ignore.case = TRUE) & 
+    !grepl("MT", contig, ignore.case = TRUE) # Filter out MT
+  )
+```
+
+### Filter out small scaffolds in *M. flavus*
+
+```{r}
+# Import chromosome sizes 
+MucFlav_sizes <- read_tsv("~/Documents/NMBU/Master/Master/gzMucFlav1/nf-core:HiC pipeline files/Contact maps/gzMucFlav1_genome.fasta.sizes",                           col_names = c("contig", "size"))
+```
+
+```{r}
+# Join with multi-mapping file
+merged_MucFlav <- left_join(MucFlav_reads_per_chrom, MucFlav_sizes, by = "contig")
+```
+
+```{r}
+# Using the sizes column we filter out all contigs smaller than 100 000, removing scaffolds. 
+MucFlav_reads_per_chrom_filtered <- merged_MucFlav %>% filter(size >= 100000)
+```
+
+### Filter out small scaffolds in *M. racemosus*
+
+```{r}
+# Import chromosome sizes 
+MucRace_sizes <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/gzMucRace1/nfcore/Contact maps/gzMucRace1_genome.fasta.sizes",                           col_names = c("contig", "size"))
+```
+
+```{r}
+# Join with multi-mapping file
+merged_MucRace <- left_join(MucRace_reads_per_chrom, MucRace_sizes, by = "contig")
+```
+
+```{r}
+# Using the sizes column we filter out all contigs smaller than 100 000, removing scaffolds. 
+MucRace_reads_per_chrom_filtered <- merged_MucRace %>% filter(size >= 100000)
+```
+
+# Shorten chromosome names, divide into subgenomes and arrange
+
+## *A. rouxii*
+
+```{r}
+# Shorten the chromosome name so it only includes chromosome number
+# Add column indicating subgenome
+AmyRoux_reads_per_chrom_clean <- AmyRoux_reads_per_chrom_filtered %>% 
+  # Create subgenome column. Classify based on the part before the first "_". 
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_", only keeping the chromosome number
+  mutate(contig_short = str_extract(contig, "[^_]+$")) %>% 
+  mutate(subgenome = str_replace(subgenome, "subgenom(\\d+)", "subgenome\\1"))
+```
+
+```{r}
+# Arrange chromosomes for plotting
+AmyRoux_reads_per_chrom_clean <- AmyRoux_reads_per_chrom_clean %>%
+  # sort by subgenome then chromosome
+  arrange(subgenome, as.numeric(contig_short)) %>%   
+  # unique for factor
+  mutate(
+    contig_unique = paste(subgenome, contig_short, sep = "_"),  
+    contig_unique = factor(contig_unique, levels = contig_unique)
+  )
+```
+
+## *M. flavus*
+
+```{r}
+MucFlav_reads_per_chrom_clean <- MucFlav_reads_per_chrom_filtered %>% 
+    # Create subgenome column based on first part before first "_"
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_"
+  mutate(contig_short = str_extract(contig, "[^_]+$")) %>% 
+  mutate(subgenome = str_replace(subgenome, "subgenom(\\d+)", "subgenome\\1"))
+```
+
+```{r}
+# Arrange chromosomes for plotting
+MucFlav_reads_per_chrom_clean <-  MucFlav_reads_per_chrom_clean %>%
+  arrange(subgenome, as.numeric(contig_short)) %>%
+  mutate(contig_short = factor(contig_short, levels = unique(contig_short)))
+```
+
+## *M. racemosus*
+
+```{r}
+MucRace_reads_per_chrom_clean <- MucRace_reads_per_chrom_filtered %>% 
+    # Create subgenome column based on first part before first "_"
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_"
+  mutate(contig_short = str_extract(contig, "[^_]+$")) %>% 
+  mutate(subgenome = str_replace(subgenome, "subgenom(\\d+)", "subgenome\\1"))
+```
+
+```{r}
+# Arrange chromosomes for plotting
+MucRace_reads_per_chrom_clean <-  MucRace_reads_per_chrom_clean %>%
+  arrange(subgenome, as.numeric(contig_short)) %>%
+  mutate(contig_short = factor(contig_short, levels = unique(contig_short)))
+```
+
+# Multi-mappinged reads per Mb
+
+```{r}
+# Import AmyRoux sizes
+AmyRoux_sizes <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/Data/TADs/ggAmyRoux1_genome.fasta.sizes", col_names = c("contig", "size"))
+```
+
+
+```{r}
+AmyRoux_reads_per_chrom_clean <- left_join(AmyRoux_reads_per_chrom_clean, AmyRoux_sizes, by = "contig") %>% mutate(mm_reads_per_Mb = count / (size / 1e6))
+```
+
+```{r}
+MucFlav_reads_per_chrom_clean <- left_join(MucFlav_reads_per_chrom_clean, MucFlav_sizes, by = "contig")  
+
+MucFlav_reads_per_chrom_clean <- MucFlav_reads_per_chrom_clean %>%  mutate(mm_reads_per_Mb = count / (size.x / 1e6))
+```
+
+```{r}
+MucRace_reads_per_chrom_clean <- left_join(MucRace_reads_per_chrom_clean, MucRace_sizes, by = "contig")  
+
+MucRace_reads_per_chrom_clean  <- MucRace_reads_per_chrom_clean  %>% mutate(mm_reads_per_Mb = count / (size.x / 1e6))
+```
+
+# Plotting 
+
+```{r}
+# Set upper limit for plots so that the y-axis is the same for all species
+AmyRoux_Mb_plot <- ggplot(AmyRoux_reads_per_chrom_clean, 
+                       aes(x = contig_unique, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90), 
+        legend.position = "none") +
+  labs(title = "A.rouxii", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = AmyRoux_reads_per_chrom_clean$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#0E7C7BFF", "subgenome2" = "#5FC0BF"))
+
+MucFlav_Mb_plot <- ggplot(MucFlav_reads_per_chrom_clean, 
+                       aes(x = contig_short, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90), 
+        legend.position = "none") +
+  labs(title = "M. flavus", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = MucFlav_reads_per_chrom_clean$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#B52626", "subgenome2" = "#E57373"))
+
+MucRace_Mb_plot <- ggplot(MucRace_reads_per_chrom_clean, 
+                       aes(x = contig_short, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90), 
+        legend.position = "none") +
+  labs(title = "M. racemosus", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = MucRace_reads_per_chrom_clean$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#B25D91", "subgenome2" = "#cb91b4"))
+
+
+combined_plot_short_Mb <- plot_grid(
+  AmyRoux_Mb_plot, MucFlav_Mb_plot, MucRace_Mb_plot,
+  ncol = 1,
+  labels = c("A", "B", "C"),
+  label_size = 14,
+  label_fontface = "bold",
+  label_y = 1
+)
+
+short_final_plot_Mb <- plot_grid( 
+  combined_plot_short_Mb, 
+  ncol = 1, 
+  rel_heights = c(0.1, 1)
+)
+
+short_final_plot_Mb
+```
+
+# Multi-mapping reads after filtering out subgenomes with low coverage
+
+```{r}
+sub2_MucFlav <- MucFlav_reads_per_chrom_clean %>% filter(!grepl("^subgenome1", contig))
+```
+
+```{r}
+sub1_MucRace <- MucRace_reads_per_chrom_clean %>% filter(!grepl("^subgenome2", contig))
+```
+
+```{r}
+AmyRoux_Mb_plot <- ggplot(AmyRoux_reads_per_chrom_clean, 
+                       aes(x = contig_unique, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0), 
+        legend.position = "none") +
+  labs(title = "A.rouxii", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = AmyRoux_reads_per_chrom_clean$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#0E7C7BFF", "subgenome2" = "#5FC0BF"))
+
+MucFlav_Mb_plot_sub2 <- ggplot(sub2_MucFlav, 
+                       aes(x = contig_short, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0), 
+        legend.position = "none") +
+  labs(title = "M. flavus", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = sub2_MucFlav$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#B52626", "subgenome2" = "#E57373"))
+
+MucRace_Mb_plot_sub1 <- ggplot(sub1_MucRace, 
+                       aes(x = contig_short, y = mm_reads_per_Mb, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0), 
+        legend.position = "none") +
+  labs(title = "M. racemosus", x = "Chromosome", y = "Multi-mapped reads/Mb") +
+  scale_x_discrete(labels = sub1_MucRace$contig_short) + 
+  scale_y_continuous(labels = scales::label_number(), limits = c(0, 1250000)) +
+  scale_fill_manual(values = c("subgenome1" = "#B25D91", "subgenome2" = "#cb91b4"))
+
+
+combined_plot_short_Mb <- plot_grid(
+  AmyRoux_Mb_plot, MucFlav_Mb_plot_sub2, MucRace_Mb_plot_sub1,
+  ncol = 1,
+  labels = c("A", "B", "C"),
+  label_size = 14,
+  label_fontface = "bold",
+  label_y = 1
+)
+
+short_final_plot_Mb <- plot_grid( 
+  combined_plot_short_Mb, 
+  ncol = 1, 
+  rel_heights = c(0.1, 1)
+)
+
+short_final_plot_Mb
+
+```
+
+
+
+
+
