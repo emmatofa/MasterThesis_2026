@@ -1,0 +1,563 @@
+---
+title: "Calculating Hi-C coverage in each subgenome"
+author: "Emma Sunde Tofastrud"
+date: "2026-01-07"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Import libraries 
+
+```{r}
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(knitr)
+library(cowplot)
+library(gridExtra)
+library(gtools) # Used in plotting, using mixedsort which comes from this package the chromosome names were sorted numerically when plotting
+```
+
+# Calculate genome and subgenome sizes 
+
+## *A. rouxii*
+
+```{r}
+# Import the chromosome sizes 
+AmyRoux_sizes <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/Data/TADs/ggAmyRoux1_genome.fasta.sizes",col_names = c("contig", "size"))
+
+# Sum the sizes of the chromosomes together to find the genome size
+total_genome_AmyRoux <- sum(AmyRoux_sizes$size)
+
+# Removes everything after the first underscore (_) and saves it in a new column named subgenome
+AmyRoux_sizes$subgenome <- sub("_[^_]+.*", "", AmyRoux_sizes$contig) 
+
+# Find the size of each subgenome
+sizes_subgenome_AmyRoux <- aggregate(size ~ subgenome, data = AmyRoux_sizes, sum)
+
+cat("Genome Size Summary (AmyRoux)\n")
+cat("Total genome size: ", total_genome_AmyRoux, "\n\n", sep = "")
+cat("Subgenome sizes:\n")
+cat(
+  paste0(
+    sizes_subgenome_AmyRoux$subgenome,
+    ": ",
+    sizes_subgenome_AmyRoux$size,
+    collapse = "\n"
+  )
+)
+```
+
+## *M. flavus*
+
+```{r}
+# Import the chromosome sizes 
+MucFlav_sizes <- read_tsv("~/Documents/NMBU/Master/Master/gzMucFlav1/nf-core:HiC pipeline files/Contact maps/gzMucFlav1_genome.fasta.sizes",                           col_names = c("contig", "size"))
+
+# Sum the sizes of the chromosomes together to find the genome size
+total_genome_MucFlav <- sum(MucFlav_sizes$size) 
+
+# Removes everything after the first underscore (_) and saves it in a new column named subgenome
+MucFlav_sizes$subgenome <- sub("_[^_]+.*", "", MucFlav_sizes$contig) 
+
+# Find the size of each subgenome
+
+sizes_subgenome_MucFlav<- aggregate(size ~ subgenome, data = MucFlav_sizes, sum)
+
+cat("Genome Size Summary (MucFlav)\n")
+cat("Total genome size: ", total_genome_MucFlav, "\n\n", sep = "")
+cat("Subgenome sizes:\n")
+cat(
+  paste0(
+    sizes_subgenome_MucFlav$subgenome,
+    ": ",
+    sizes_subgenome_MucFlav$size,
+    collapse = "\n"
+  )
+)
+```
+
+## *M. racemosus*
+
+```{r}
+# Import the chromosome sizes 
+MucRace_sizes <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/gzMucRace1/nfcore/Contact maps/gzMucRace1_genome.fasta.sizes",                           col_names = c("contig", "size"))
+
+# Sum the sizes of the chromosomes together to find the genome size
+total_genome_MucRace <- sum(MucRace_sizes$size) 
+
+# Removes everything after the first underscore (_) and saves it in a new column named subgenome
+MucRace_sizes$subgenome <- sub("_[^_]+.*", "", MucRace_sizes$contig) 
+
+# Find the size of each subgenome
+
+sizes_subgenome_MucRace<- aggregate(size ~ subgenome, data = MucRace_sizes, sum)
+
+cat("Genome Size Summary (MucRace)\n")
+cat("Total genome size: ", total_genome_MucRace, "\n\n", sep = "")
+cat("Subgenome sizes:\n")
+cat(
+  paste0(
+    sizes_subgenome_MucRace$subgenome,
+    ": ",
+    sizes_subgenome_MucRace$size,
+    collapse = "\n"
+  )
+)
+```
+
+## Convert from bp to Mb
+
+Divide on the genome and subgenome sizes on 1 000 000 to get per million base pairs instead of bp. 
+
+```{r}
+mb = 1000000
+AmyRoux_genome_Mb = round(80325223/mb,2)
+AmyRoux_sub1_Mb = round(40326961/mb,2)
+AmyRoux_sub2_Mb = round(39998262/mb,2)
+
+MucFlav_genome_Mb = round(75655998/mb,2)
+MucFlav_sub1_Mb = round(42531630/mb,2)
+MucFlav_sub2_Mb = round(33124368/mb,2)
+
+MucRace_genome_Mb = round(121845080/mb,2)
+MucRace_sub1_Mb = round(87150711/mb,2)
+MucRace_sub2_Mb = round(34694369/mb,2)
+
+# Table showing sizes in Mb for each species 
+genome_table <- data.frame(
+  Species = c("A. rouxii", "M. flavus", "M. racemosus"),
+  Genome_Size_Mb = c(AmyRoux_genome_Mb, MucFlav_genome_Mb, MucRace_genome_Mb),
+  Subgenome_1_Size_Mb = c(AmyRoux_sub1_Mb, MucFlav_sub1_Mb, MucRace_sub1_Mb),
+  Subgenome_2_Size_Mb = c(AmyRoux_sub2_Mb, MucFlav_sub2_Mb, MucRace_sub2_Mb)
+)
+genome_table
+```
+
+# Calculate coverge estimate for genome and subgenomes using valid read pairs
+
+To calculate the coverage for the whole genome, we used the following formula:
+
+Total coverage: $Coverage_{total} = \frac{\text{Total number of valid pairs} \times 2 \times \text{Read length}}{\text{Genome size}}$.
+
+To obtain a rough estimate of coverage for each subgenome, we used the following formula: 
+
+Coverage per subgenome: $Coverage_{subgenome} = \frac{\text{# valid read pairs} \times 2 \times \text{Read length (bp)}}{\text{Subgenome size (bp)}}$
+
+```{r}
+# Read length for all species
+read_length <- 146
+```
+
+## A. rouxii
+
+```{r}
+# The number of valid pairs per subgenome
+total_valid_pairs_AR <- 9331600
+valid_pairs_sub1_AR <- 3946555
+valid_pairs_sub2_AR <- 3941782
+
+# Size of the whole genome and subgenomes
+total_genome_AmyRoux <- 80325223
+sub1_size_AR <- 40326961
+sub2_size_AR <- 39998262
+```
+
+```{r}
+# Coverage for whole genome
+coverage_genome_AR <- (total_valid_pairs_AR*2*read_length)/total_genome_AmyRoux
+cat("Coverage for whole genome in A.rouxii: ", coverage_genome_AR, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 1
+coverage_sub1_AR <- (valid_pairs_sub1_AR*2*read_length)/sub1_size_AR
+cat("Coverage subgenome 1 in A.rouxii: ", coverage_sub1_AR, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 2
+coverage_sub2_AR <- (valid_pairs_sub2_AR*2*read_length)/sub2_size_AR
+cat("Coverage subgenome 2 in A.rouxii: ", coverage_sub2_AR, "\n\n", sep = "")
+```
+
+## M. flavus
+
+```{r}
+# The number of valid pairs per subgenome
+total_valid_pairs_MF <- 16018096
+valid_pairs_sub1_MF <- 24
+valid_pairs_sub2_MF <- 16017819
+
+# Size of the whole genome and subgenomes
+total_genome_MucFlav <- 75655998
+sub1_size_MF <- 42531630
+sub2_size_MF <- 33124368
+```
+
+```{r}
+# Coverage for whole genome
+coverage_genome_MF <- (total_valid_pairs_MF*2*read_length)/total_genome_MucFlav
+cat("Coverage for whole genome in M.flavus: ", coverage_genome_MF, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 1
+coverage_sub1_MF <- (valid_pairs_sub1_MF*2*read_length)/sub1_size_MF
+cat("Coverage subgenome 1 in M.flavus: ", coverage_sub1_MF, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 2
+coverage_sub2_MF <- (valid_pairs_sub2_MF*2*read_length)/sub2_size_MF
+cat("Coverage subgenome 2 in M.flavus: ", coverage_sub2_MF, "\n\n", sep = "")
+```
+
+## M. racemosus
+
+```{r}
+# The number of valid pairs per subgenome
+total_valid_pairs_MR <- 997475
+valid_pairs_sub1_MR <- 954937
+valid_pairs_sub2_MR <- 42139
+
+# Size of the whole genome and subgenomes
+total_genome_MucRace <- 121845080
+sub1_size_MR <- 87150711
+sub2_size_MR <- 34694369
+```
+
+```{r}
+# Coverage for whole genome
+coverage_genome_MR <- (total_valid_pairs_MR*2*read_length)/total_genome_MucRace
+cat("Coverage for whole genome in M.racemosus: ", coverage_genome_MR, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 1
+coverage_sub1_MR <- (valid_pairs_sub1_MR*2*read_length)/sub1_size_MR
+cat("Coverage subgenome 1 in M.racemosus: ", coverage_sub1_MR, "\n\n", sep = "")
+```
+
+```{r}
+# Coverage for subgenome 2
+coverage_sub2_MR <- (valid_pairs_sub2_MR*2*read_length)/sub2_size_MR
+cat("Coverage subgenome 2 in M.racemosus: ", coverage_sub2_MR, "\n\n", sep = "")
+```
+
+# Calculate windowed coverage and estimate coverage per chromosome
+
+## Import windowed files (20 kb windows for all species)
+
+```{r}
+# Importing coverage calculated for 20 kb windows in A. rouxii
+coverage_AmyRoux <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/Data/Mapping coverage/HiC coverage for default HiC/ggAmyRoux1_coverage_20kb.txt",col_names = c("contig", "start", "end", "coverage"), skip = 0)
+```
+
+```{r}
+# Importing coverage calculated for 20 kb windows in M. flavus
+coverage_MucFlav<- read_tsv("/Users/emma/Documents/NMBU/Master/Master/gzMucFlav1/nf-core:HiC pipeline files/gzMucFlav1_coverage_20kb.txt",col_names = c("contig", "start", "end", "coverage"), skip = 0)
+```
+
+```{r}
+# Importing coverage calculated for 20 kb windows in M. racemosus
+coverage_MucRace <- read_tsv("/Users/emma/Documents/NMBU/Master/Master/gzMucRace1/nfcore/gzMucRace1_coverage_20kb.txt",col_names = c("contig", "start", "end", "coverage"), skip = 0)
+```
+
+## Filtering 
+
+### Filter out scaffolds from *A.rouxii*
+
+```{r}
+# Filter out all named scaffold, only keeping the ones named SUPER
+coverage_AmyRoux <- coverage_AmyRoux %>%
+  filter(
+    !grepl("scaffold", contig, ignore.case = TRUE) & 
+    !grepl("MT", contig, ignore.case = TRUE) # Filter out MT
+  )
+```
+
+### Filter outsmall scaffolds in *M.flavus*
+
+```{r}
+# Start by merging the windowed coverage file with the chromosome sizes file, using contig as "merging factor". 
+merged_MucFlav <- left_join(coverage_MucFlav, MucFlav_sizes, by = "contig")
+```
+
+```{r}
+# Using the sizes column we filter out all contigs smaller than 100 000, removing scaffolds. 
+filtered_MucFlav <- merged_MucFlav %>% filter(size >= 100000)
+```
+
+#### Filter out small scaffolds in *M.racemosus*
+
+```{r}
+# Start by merging the windowed coverage file with the chromosome sizes file, using contig as "merging factor". 
+merged_MucRace <- left_join(coverage_MucRace, MucRace_sizes, by = "contig")
+```
+
+```{r}
+# Filter out scaffolds smaller than 100 000.
+filtered_MucRace1 <- merged_MucRace %>% filter(size >= 100000)
+```
+
+#### Filter out small scaffolds in *M.racemosus*
+
+We do the same for M. racemosus as we did for *M.flavus*.
+
+```{r}
+merged_MucRace <- left_join(coverage_MucRace, MucRace_sizes, by = "contig")
+```
+
+```{r}
+# Filter out scaffolds smaller than 100 000.
+filtered_MucRace1 <- merged_MucRace %>% filter(size >= 100000)
+```
+
+# Mean coverage per chromosome 
+
+```{r}
+# Find mean coverage per chromosome by grouping by contig and then use summarise to find the mean coverage for that chromosome 
+coverage_summary_AmyRoux <- coverage_AmyRoux  %>%
+  group_by(contig) %>%
+  summarise(mean_coverage = mean(coverage))
+```
+
+```{r}
+coverage_summary_MucFlav <- filtered_MucFlav %>%
+  group_by(contig) %>%
+  summarise(mean_coverage = mean(coverage))
+```
+
+```{r}
+coverage_summary_MucRace <- filtered_MucRace1 %>%
+  group_by(contig) %>%
+  summarise(mean_coverage = mean(coverage))
+```
+
+# Shorten chromosome names and add subgenome coloumn 
+
+```{r}
+# Shorten the chromosome name so it only includes chromosome number
+# Add column indicating subgenome
+coverage_AmyRoux_clean <- coverage_summary_AmyRoux %>% 
+  # Create subgenome column. Classify based on the part before the first "_". 
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_", only keeping the chromosome number
+  mutate(contig_short = str_extract(contig, "[^_]+$")) %>% 
+  mutate(subgenome = str_replace(subgenome, "subgenom(\\d+)", "subgenome\\1"))
+```
+
+```{r}
+# Shorten the chromosome name so it only includes chromosome number
+# Add column indicating subgenome
+coverage_MucFlav_clean <- coverage_summary_MucFlav %>% 
+  # Create subgenome column. Classify based on the part before the first "_". 
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_", only keeping the chromosome number
+  mutate(contig_short = str_extract(contig, "[^_]+$")) 
+```
+
+```{r}
+# Shorten the chromosome name so it only includes chromosome number
+# Add column indicating subgenome
+coverage_MucRace_clean <- coverage_summary_MucRace %>% 
+    # Create subgenome column based on first part before first "_"
+  mutate(subgenome = str_extract(contig, "^[^_]+")) %>%
+  # Remove everything before the last "_"
+  mutate(contig_short = str_extract(contig, "[^_]+$")) 
+```
+
+# Arrange chromosomes and subgenomes before plotting
+
+```{r}
+# Arrange so the numbers are shown by increasing number in all species
+coverage_AmyRoux_clean <- coverage_AmyRoux_clean %>%
+  # Sort by subgenome then chromosome
+  arrange(subgenome, as.numeric(contig_short)) %>%   
+  # unique for factor
+  mutate(
+    contig_unique = paste(subgenome, contig_short, sep = "_"),  
+    contig_unique = factor(contig_unique, levels = contig_unique)
+  )
+
+coverage_MucFlav_clean <- coverage_MucFlav_clean %>%
+  arrange(subgenome, as.numeric(contig_short)) %>%
+  mutate(contig_short = factor(contig_short, levels = unique(contig_short)))
+
+coverage_MucRace_clean <- coverage_MucRace_clean %>%
+  arrange(subgenome, as.numeric(contig_short)) %>%
+  mutate(contig_short = factor(contig_short, levels = unique(contig_short)))
+```
+
+# Plotting 
+
+## Colour pallett for each species 
+
+```{r}
+species_palettes <- list(
+  AmyRoux = c(
+    "subgenome1" = "#0E7C7BFF",
+    "subgenome2" = "#5FC0BF"
+  ),
+    MucFlav = c(
+    "subgenome1" = "#B52626",
+    "subgenome2" = "#E57373"
+  ),
+    MucRace = c(
+    "subgenome1" = "#B25D91",
+    "subgenome2" = "#cb91b4")
+  )
+```
+
+
+```{r}
+# Plot for A. rouxii 
+AmyRoux_plot <- ggplot(coverage_AmyRoux_clean, 
+                       aes(x = contig_unique, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "A.rouxii", x = "Chromosome", y = "Mean Coverage") +
+  # show only chromosome number
+  scale_x_discrete(labels = coverage_AmyRoux_clean$contig_short) + 
+   # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#0E7C7BFF", "subgenome2" = "#5FC0BF"))
+
+MucFlav_plot <- ggplot(coverage_MucFlav_clean, 
+                       aes(x = contig_short, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "M.flavus", x = "Chromosome", y = "Mean Coverage") +
+   # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#B52626", "subgenome2" = "#E57373")) + scale_x_discrete(expand = expansion(add = 0.9))
+
+
+MucRace_plot <- ggplot(coverage_MucRace_clean, 
+                       aes(x = contig_short, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "M. racemosus", x = "Chromosome", y = "Mean Coverage") +
+  # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#B25D91", "subgenome2" = "#cb91b4"))
+
+combined_plot_short <- plot_grid(
+  AmyRoux_plot, MucFlav_plot, MucRace_plot,
+  ncol = 1,
+  labels = c("A", "B", "C"),
+  label_size = 14,
+  label_fontface = "bold",
+  label_y = 1
+)
+
+short_final_plot <- plot_grid( 
+  combined_plot_short, 
+  ncol = 1, 
+  rel_heights = c(0.1, 1)
+)
+
+short_final_plot
+```
+
+## Same y-axis
+
+```{r}
+# Plot for A. rouxii 
+AmyRoux_plot_shared <- ggplot(coverage_AmyRoux_clean, 
+                       aes(x = contig_unique, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "A.rouxii", x = "Chromosome", y = "Mean Coverage") +
+  # show only chromosome number
+  scale_x_discrete(labels = coverage_AmyRoux_clean$contig_short) + 
+   # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#0E7C7BFF", "subgenome2" = "#5FC0BF"))+ coord_cartesian(ylim = c(0, 300))
+
+MucFlav_plot_shared <- ggplot(coverage_MucFlav_clean, 
+                       aes(x = contig_short, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "M.flavus", x = "Chromosome", y = "Mean Coverage") +
+   # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#B52626", "subgenome2" = "#E57373")) + scale_x_discrete(expand = expansion(add = 0.9)) + coord_cartesian(ylim = c(0, 300))
+
+
+MucRace_plot_shared <- ggplot(coverage_MucRace_clean, 
+                       aes(x = contig_short, y = mean_coverage, fill = subgenome)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none") + # removes the legend showing subgenome
+  labs(title = "M. racemosus", x = "Chromosome", y = "Mean Coverage") +
+  # Give each subgenome their own version of the species colour
+  scale_fill_manual(values = c("subgenome1" = "#B25D91", "subgenome2" = "#cb91b4")) + coord_cartesian(ylim = c(0, 300))
+
+combined_shared_axis <- plot_grid(
+  AmyRoux_plot_shared, MucFlav_plot_shared, MucRace_plot_shared,
+  ncol = 1,
+  labels = c("A", "B", "C"),
+  label_size = 14,
+  label_fontface = "bold",
+  label_y = 1
+)
+
+shared_axis_HiCcoverageplot <- plot_grid( 
+  combined_shared_axis, 
+  ncol = 1, 
+  rel_heights = c(0.1, 1)
+)
+
+shared_axis_HiCcoverageplot
+```
+
+
+# Valid read pairs per megabase
+
+## *A.rouxii*
+
+```{r}
+# To find the number of valid pairs per megabase we need to divide the number of valid pairs on the genome size (Mb).
+total_valid_pairs_AR <- 9331600 
+
+valid_pairs_AmyRoux_perMb <- total_valid_pairs_AR/AmyRoux_genome_Mb
+
+cat("Valid pairs per Mb in A.rouxii:", valid_pairs_AmyRoux_perMb, "\n")
+```
+
+## *M.flavus*
+
+```{r}
+total_valid_pairs_MF <- 16018096 
+valid_pairs_MucFlav_perMb <- total_valid_pairs_MF/MucFlav_genome_Mb
+
+cat("Valid pairs per Mb in M.flavus:", valid_pairs_MucFlav_perMb, "\n")
+
+```
+
+## *M.racemosus*
+
+```{r}
+total_valid_pairs_MR <- 997475 
+valid_pairs_MucRace_perMb <- total_valid_pairs_MR/MucRace_genome_Mb
+
+cat("Valid pairs per Mb in M.racemosus", valid_pairs_MucRace_perMb, "\n")
+```
+
+
+
+
+
